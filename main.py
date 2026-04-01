@@ -77,12 +77,12 @@ class TradingSystem:
                 self.paper_trader.reset_daily_flag()
 
     async def start(self):
-        # Start health check server
+        # Start health check server (thread)
         threading.Thread(target=run_health_server, daemon=True).start()
         logger.info("Health check server running on port 8000")
 
-        # Start Telegram bot polling (as background task)
-        # await self.notifier.start_polling()
+        # Start Telegram bot polling in a separate thread
+        self.notifier.start_polling()
 
         # Connect to WebSocket streams for each timeframe
         for tf in settings.TIMEFRAMES.values():
