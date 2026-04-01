@@ -1,0 +1,11 @@
+ccxt
+pandas
+numpy
+python-dotenv
+pydantic
+pydantic-settings
+websockets
+aiohttp
+python-telegram-bot
+plyer
+flask
