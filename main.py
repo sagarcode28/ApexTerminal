@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from flask import Flask
 from logs.logger import setup_logging
 from config import settings
-from data.stream import BinanceKlineStream
+from data.stream import BinancePollingFeed
 from strategy.engine import SignalGenerator
 from paper_trader import PaperTrader
 from alerts.notifier import AlertNotifier
@@ -14,7 +14,6 @@ from alerts.notifier import AlertNotifier
 setup_logging()
 logger = logging.getLogger(__name__)
 
-# Health check server (keeps Render from idling)
 app = Flask(__name__)
 
 @app.route('/')
@@ -77,12 +76,11 @@ class TradingSystem:
                 self.paper_trader.reset_daily_flag()
 
     async def start(self):
-        # Start health check server
         threading.Thread(target=run_health_server, daemon=True).start()
         logger.info("Health check server running on port 8000")
 
         for tf in settings.TIMEFRAMES.values():
-            stream = BinanceKlineStream(settings.SYMBOLS, tf)
+            stream = BinancePollingFeed(settings.SYMBOLS, tf)
             stream.on_kline(lambda candle, tf=tf: self.on_kline(candle, tf))
             self.streams[tf] = stream
             asyncio.create_task(stream.connect())
