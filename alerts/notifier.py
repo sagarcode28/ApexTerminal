@@ -1,14 +1,16 @@
 # alerts/notifier.py
+import asyncio
 import logging
 from typing import Optional
 from plyer import notification
 from telegram import Bot
 from config import settings
+from paper_trader import PaperTrader
 
 logger = logging.getLogger(__name__)
 
 class AlertNotifier:
-    def __init__(self, paper_trader=None):
+    def __init__(self, paper_trader: Optional[PaperTrader] = None):
         self.paper_trader = paper_trader
         self.bot = None
         if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID:

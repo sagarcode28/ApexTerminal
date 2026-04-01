@@ -1,60 +1,68 @@
 # data/stream.py
 import asyncio
+import json
 import logging
 from typing import List, Callable, Awaitable, Dict
-import ccxt
+import websockets
 
 logger = logging.getLogger(__name__)
 
-class BinancePollingFeed:
+class BybitKlineStream:
     def __init__(self, symbols: List[str], timeframe: str):
         self.symbols = symbols
         self.timeframe = timeframe
-        self.exchange = ccxt.binance({'enableRateLimit': True})
+        self.ws_url = "wss://stream.bybit.com/v5/public/spot"
         self.callbacks: List[Callable[[Dict], Awaitable[None]]] = []
+        self.websocket = None
         self._stop = False
-        self._last_candle_times = {}  # symbol -> timestamp of last processed candle
 
     def on_kline(self, callback: Callable[[Dict], Awaitable[None]]):
         self.callbacks.append(callback)
 
-    async def _poll(self):
+    async def connect(self):
+        # Subscribe to kline topics for all symbols
+        subscribe_msg = {
+            "op": "subscribe",
+            "args": [f"kline.{self.timeframe}.{s}" for s in self.symbols]
+        }
+        logger.info(f"Connecting to Bybit WebSocket for {self.timeframe} minute candles")
         while not self._stop:
             try:
-                for symbol in self.symbols:
-                    # Fetch the latest 2 candles to detect new closed candles
-                    candles = await asyncio.get_event_loop().run_in_executor(
-                        None, self.exchange.fetch_ohlcv, symbol, self.timeframe, None, 2
-                    )
-                    if not candles:
-                        continue
-                    # The last candle may still be open; we only process closed ones
-                    for candle in candles:
-                        ts = candle[0]
-                        is_closed = (ts + self.exchange.parse_timeframe(self.timeframe)*1000) <= self.exchange.milliseconds()
-                        if is_closed:
-                            last_ts = self._last_candle_times.get(symbol)
-                            if last_ts is None or ts > last_ts:
-                                self._last_candle_times[symbol] = ts
-                                candle_dict = {
-                                    'symbol': symbol,
-                                    'open': candle[1],
-                                    'high': candle[2],
-                                    'low': candle[3],
-                                    'close': candle[4],
-                                    'volume': candle[5],
-                                    'timestamp': ts,
-                                    'is_closed': True
-                                }
+                async with websockets.connect(self.ws_url) as ws:
+                    self.websocket = ws
+                    await ws.send(json.dumps(subscribe_msg))
+                    logger.info(f"Connected to Bybit WebSocket for {self.timeframe}")
+                    async for message in ws:
+                        if self._stop:
+                            break
+                        data = json.loads(message)
+                        # Bybit kline push format
+                        if 'topic' in data and 'data' in data:
+                            topic = data['topic']
+                            # topic: "kline.15.BTCUSDT"
+                            parts = topic.split('.')
+                            tf = parts[1]
+                            symbol = parts[2]
+                            k = data['data'][0]   # list of one kline
+                            candle = {
+                                'symbol': symbol,
+                                'open': float(k['open']),
+                                'high': float(k['high']),
+                                'low': float(k['low']),
+                                'close': float(k['close']),
+                                'volume': float(k['volume']),
+                                'timestamp': k['start'],
+                                'is_closed': k['confirm']  # true when closed
+                            }
+                            if candle['is_closed']:
                                 for cb in self.callbacks:
-                                    await cb(candle_dict)
-                await asyncio.sleep(60)  # poll every 60 seconds
+                                    await cb(candle)
             except Exception as e:
-                logger.error(f"Polling error: {e}")
-                await asyncio.sleep(10)
-
-    async def connect(self):
-        await self._poll()
+                logger.error(f"Error in WebSocket: {e}")
+                if not self._stop:
+                    await asyncio.sleep(5)
 
     def stop(self):
         self._stop = True
+        if self.websocket:
+            asyncio.create_task(self.websocket.close())

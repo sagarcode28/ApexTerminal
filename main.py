@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from flask import Flask
 from logs.logger import setup_logging
 from config import settings
-from data.stream import BinancePollingFeed
+from data.stream import BybitKlineStream
 from strategy.engine import SignalGenerator
 from paper_trader import PaperTrader
 from alerts.notifier import AlertNotifier
@@ -14,6 +14,7 @@ from alerts.notifier import AlertNotifier
 setup_logging()
 logger = logging.getLogger(__name__)
 
+# Health check server
 app = Flask(__name__)
 
 @app.route('/')
@@ -53,12 +54,12 @@ class TradingSystem:
                     import aiohttp
                     current_prices = {}
                     for symbol in self.paper_trader.get_positions().keys():
-                        symbol_clean = symbol.replace('/', '').lower()
-                        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol_clean}"
+                        url = f"https://api.bybit.com/v5/market/tickers?category=spot&symbol={symbol}"
                         async with aiohttp.ClientSession() as session:
                             async with session.get(url) as resp:
                                 data = await resp.json()
-                                current_prices[symbol] = float(data['price'])
+                                if data['retCode'] == 0:
+                                    current_prices[symbol] = float(data['result']['list'][0]['lastPrice'])
                     self.paper_trader.update_positions(current_prices)
             except Exception as e:
                 logger.error(f"Position update error: {e}")
@@ -76,11 +77,16 @@ class TradingSystem:
                 self.paper_trader.reset_daily_flag()
 
     async def start(self):
+        # Start health check server
         threading.Thread(target=run_health_server, daemon=True).start()
         logger.info("Health check server running on port 8000")
 
+        # Start Telegram bot polling (as background task)
+        # await self.notifier.start_polling()
+
+        # Connect to WebSocket streams for each timeframe
         for tf in settings.TIMEFRAMES.values():
-            stream = BinancePollingFeed(settings.SYMBOLS, tf)
+            stream = BybitKlineStream(settings.SYMBOLS, tf)
             stream.on_kline(lambda candle, tf=tf: self.on_kline(candle, tf))
             self.streams[tf] = stream
             asyncio.create_task(stream.connect())

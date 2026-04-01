@@ -4,14 +4,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
 class Settings(BaseSettings):
-    # Exchange
-    EXCHANGE_ID: str = "binance"
+    # Exchange (Bybit public data – no API keys needed)
+    EXCHANGE_ID: str = "bybit"
     API_KEY: str = ""
     API_SECRET: str = ""
 
-    # Symbols and timeframes
-    SYMBOLS: List[str] = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT"]
-    TIMEFRAMES: dict = {"entry": "15m", "intermediate": "1h", "trend": "4h"}
+    # Symbols in Bybit format (no slash)
+    SYMBOLS: List[str] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
+    TIMEFRAMES: dict = {"entry": "15", "intermediate": "60", "trend": "240"}   # minutes
 
     # Risk
     RISK_PER_TRADE_PCT: float = 0.01
